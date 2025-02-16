@@ -1,18 +1,37 @@
 from typing import Final
-import openai
+import time
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from dotenv import load_dotenv
 import os
+import requests
+from datetime import datetime, timedelta
 
 load_dotenv()
 TOKEN: Final = os.getenv('TELEGRAM_TOKEN')
-OPENAI_API_KEY: Final = os.getenv('OPENAI_API_KEY')
-
+HUGGINGFACE_API_KEY: Final = os.getenv('HUGGINGFACE_API_KEY')
 BOT_USERNAME: Final = '@noob_raka_bot'
 
-# Initialize OpenAI
-openai.api_key = OPENAI_API_KEY
+# Initialize HuggingFace API settings
+API_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
+headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
+
+# Rate limiting class
+class RateLimiter:
+    def __init__(self, calls_per_minute=60):
+        self.calls_per_minute = calls_per_minute
+        self.calls = []
+    
+    def can_make_request(self) -> bool:
+        now = datetime.now()
+        self.calls = [call for call in self.calls if call > now - timedelta(minutes=1)]
+        if len(self.calls) < self.calls_per_minute:
+            self.calls.append(now)
+            return True
+        return False
+
+# Initialize rate limiter
+rate_limiter = RateLimiter(calls_per_minute=30)  # Adjust based on your needs
 
 # Command Handlers
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -25,38 +44,47 @@ async def custom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('This is a custom message!') 
 
 # Response Handlers
-async def get_openai_response(prompt: str) -> str:
+async def get_huggingface_response(prompt: str) -> str:
+    if not rate_limiter.can_make_request():
+        return "I'm receiving too many requests right now. Please try again in a minute! 🕒"
+    
     try:
-        response = await openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant named Raka."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=150,
-            temperature=0.7
+        response = requests.post(
+            API_URL, 
+            headers=headers, 
+            json={"inputs": prompt},
+            timeout=10  # Add timeout
         )
-        return response.choices[0].message.content.strip()
+        if response.status_code == 200:
+            return response.json()[0]['generated_text']
+        elif response.status_code == 429:
+            return "I'm a bit overwhelmed right now. Please try again in a minute! 🔄"
+        else:
+            print(f"HuggingFace API Error: {response.status_code}")
+            return f"I encountered an issue. Please try again later! 🔧"
+    except requests.Timeout:
+        return "The response took too long. Please try again! ⏱️"
     except Exception as e:
-        return f"Sorry, I encountered an error: {str(e)}"
+        print(f"Error in HuggingFace response: {str(e)}")
+        return "I'm having trouble thinking right now. Let me respond simply! 🤖"
 
 async def handle_response(text: str) -> str:
-    # Convert input text to lowercase for easier processing
     processed_text = text.lower()
     
     # Basic responses for common interactions
     greetings = ['hello', 'hi', 'hey', 'sup', 'whatsup']
     goodbyes = ['bye', 'goodbye', 'see you', 'cya']
+# Simple patterns continue to use predefined responses
     
-    # Simple patterns continue to use predefined responses
+# Simple patterns continue to use predefined responses
     if any(word in processed_text for word in greetings):
         return "Hey! How can I help you today? 👋"
     elif any(word in processed_text for word in goodbyes):
         return "Goodbye! Have a great day! 👋"
     
-    # For more complex queries, use OpenAI
+    # For more complex queries, use HuggingFace
     try:
-        response = await get_openai_response(text)
+        response = await get_huggingface_response(text)
         return response
     except Exception:
         return "I'm having trouble connecting to my AI brain. Let me respond simply: I'm here to help! 🤖"
@@ -85,7 +113,7 @@ async def error(update: object, context: ContextTypes.DEFAULT_TYPE):
     print(f'Update {update} caused error {context.error}')
 
 
-if __name__ == '__main__':
+if __name__ == '__main__': # Entry point of the script to start the bot 
 
     print('Bot is running!')
     # Commands
