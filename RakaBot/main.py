@@ -6,10 +6,16 @@ from dotenv import load_dotenv
 import os
 import requests
 from datetime import datetime, timedelta
+from os import environ
 
-load_dotenv()
-TOKEN: Final = os.getenv('TELEGRAM_TOKEN')
-HUGGINGFACE_API_KEY: Final = os.getenv('HUGGINGFACE_API_KEY')
+if environ.get('IS_PROD'):
+    TOKEN = environ.get('TELEGRAM_TOKEN')
+    HUGGINGFACE_API_KEY = environ.get('HUGGINGFACE_API_KEY')
+else:
+    load_dotenv()
+    TOKEN = os.getenv('TELEGRAM_TOKEN')
+    HUGGINGFACE_API_KEY = os.getenv('HUGGINGFACE_API_KEY')
+
 BOT_USERNAME: Final = '@noob_raka_bot'
 
 # Initialize HuggingFace API settings
